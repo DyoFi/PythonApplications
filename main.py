@@ -33,12 +33,12 @@ sm = ScreenManager()
 sm.transition = SlideTransition()
 
 def goto_login(instance):
-    sm.transition.direction = "left"
-    sm.current = "login"
+    sm.transition.direction = 'left'
+    sm.current = 'login'
 
 def goto_signup(instance):
-    sm.transition.direction = "right"
-    sm.current = "signup"
+    sm.transition.direction = 'right'
+    sm.current = 'signup'
 
 
 # --- Color Theme ---
@@ -446,11 +446,11 @@ def build_add_expense_screen():
 
     return layout
 
-signup_screen = Screen(name = "signup")
+signup_screen = Screen(name = 'signup')
 signup_screen.add_widget(build_signup_screen())
-login_screen = Screen(name = "login")
+login_screen = Screen(name = 'login')
 login_screen.add_widget(build_login_screen())
-dashboard_screen = Screen(name = "dashboard")
+dashboard_screen = Screen(name = 'dashboard')
 dashboard_screen.add_widget(build_dashboard_screen())
 
 sm.add_widget(login_screen)
