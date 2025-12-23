@@ -136,13 +136,16 @@ def on_submit(instance):
             log_password = userinfo["password"]
             log_name = userinfo["name"]
             if login_email == log_email and login_password == log_password:
-                signedin_name = log_name
-                signedin_user = log_email
-                print(signedin_user)
-                print(signedin_name)
-                show_popup("SUCCESS", "You have logged in successfully!")
-                sm.transition.direction = 'right'
-                sm.current = 'dashboard'
+                found = True
+                signedin_name = userinfo["name"]
+                signedin_user = userinfo["email"]
+                break
+    if found:
+        show_popup("SUCCESS", "You have logged in successfully!")
+        sm.transition.direction = 'right'
+        sm.current = 'dashboard'
+    else:
+        show_popup("ERROR", "Incorrect information")
 
 # --- Signup Screen ---
 def build_signup_screen():
@@ -263,10 +266,10 @@ def verify_otp(instance):
 #-----Dashboard-----
 
 def build_dashboard_screen():
+    global owe_amount_label, other_owe_amount_label, signedin_name, signedin_user, table
     print(signedin_name)
     print(signedin_user)
-    global owe_amount_label, other_owe_amount_label
-
+    signedin_name = "dyo"
     layout = FloatLayout(size_hint=(1, 1))
 
     # Welcome label
@@ -310,15 +313,20 @@ def build_dashboard_screen():
                                    color=TEXT_COLOR, size_hint=(1, 0.6))
     other_owe_box.add_widget(other_owe_label)
     other_owe_box.add_widget(other_owe_amount_label)
+    if signedin_name:
+        i_owe,others_owe = calculate_user_balance()
+        owe_amount_label.text = str(i_owe)
+        other_owe_amount_label.text = str(others_owe)
+    else:
+        i_owe, others_owe = 0,0
 
-   
     refresh_btn = Button(
         text='Refresh',
         size_hint=(None, None), size=(100, 40),
         background_color=SECONDARY_COLOR,
         color=(1, 1, 1, 1),
         font_size=16,
-       
+        on_press = refresh_page
     )
 
     # Add all to the info box
@@ -330,21 +338,57 @@ def build_dashboard_screen():
     layout.add_widget(info_float)
 
     # Group members
-    group =["member1", "member2", "member3"]  # Placeholder for group members
-    num_members = len(group)
+    group_members = load_member()  # Placeholder for group members
+    num_members = len(group_members)
     cols = 3 + num_members
-
+    
     # Table
     table = GridLayout(cols=cols, size_hint_y=None, spacing=5, padding=5)
-   # table.bind(minimum_height=table.setter('height'))
+    # table.bind(minimum_height=table.setter('height'))
 
     # Add header row
-    headers = ['DESCRIPTION', 'PAID BY', 'AMOUNT'] + group
+    headers = ['DESCRIPTION', 'PAID BY', 'AMOUNT'] + group_members
     for col in headers:
         table.add_widget(Label(text=f"[b]{col}[/b]", markup=True,
                             color="yellow", size_hint_y=None, height=40))
+    
+    tr_ref = db.reference("transaction")
+    tr_data = tr_ref.get()
+    if tr_data:
+        for trid, trinfo in tr_data.items():
+            tr_desc = trinfo.get("description", "")
+            tr_topay = trinfo.get("topay", "")
+            tr_amount = trinfo.get("amount", 0.00)
+            table.add_widget(Label(text = str(tr_desc), 
+                                   color = "white", size_hint_y = None, height = 40))
+            table.add_widget(Label(text = str(tr_topay),
+                                   color = "white", size_hint_y = None, height = 40))
+            table.add_widget(Label(text = str(tr_amount),
+                                   color = "white", size_hint_y = None, height = 40))
+            tr_split = trinfo.get("split", {})
+            for member in group_members:
+                share = tr_split.get(member, "")
+                if isinstance(share, (int,float)):
+                    share_text = f"{share:.2f}"
+                elif share == "" or share is None:
+                    share_text = "-"
+                else:
+                    try:
+                        share_text = f"{float(share):.2f}"
+                    except:
+                        share_text = str(share)
+                table.add_widget(Label(text = str(share_text),
+                                       color= "white", size_hint_y = None, height = 40))
+                
+        table_scroll = ScrollView(size_hint = (1,None), size = (Window.width, 500), scroll_y = 1.0,
+                                  pos_hint = {'x': 0, 'y': -0.25})
+        table_scroll.add_widget(table)
+        layout.add_widget(table_scroll)
+    else:
+        layout.add_widget(Label(text = "No transactions",
+                                color = "yellow", size_hint_y = None, height = 40, 
+                                pos_hint = {'center_x': 0.5, 'center_y': 0.5}))
 
-   
     # Buttons at bottom
     btn_layout = BoxLayout(
         orientation='horizontal',
@@ -369,6 +413,35 @@ def build_dashboard_screen():
     layout.add_widget(btn_layout)
 
     return layout
+
+def calculate_user_balance():
+    i_owe = 0.00
+    others_owe = 0.00
+    tr_ref = db.reference("transaction")
+    tr_id = tr_ref.get()
+    if not tr_id:
+        return round(i_owe,2),round(others_owe,2)
+    for trdata, trinfo in tr_id.items():
+        topay = trinfo.get("topay","")
+        if topay == signedin_name:
+            tr_split = trinfo["split"]
+            for name, amount in tr_split.items():
+                if name != signedin_name:
+                    others_owe += amount
+        if topay != signedin_name:
+            tr_o_split = trinfo["split"]
+            for name, amount in tr_o_split.items():
+                if name == signedin_name:
+                    i_owe += amount
+    return round(i_owe,2),round(others_owe,2)
+
+def refresh_page(instance):
+    db.reference("transaction").delete()
+    table.clear_widgets()
+    # group_members.clear()
+    owe_amount_label.text = str(0)
+    other_owe_amount_label.text = str(0)
+    show_popup("INFO","All transactions cleared")
 
 #---- Add Group Member Screen ---
 def build_add_group_screen():
@@ -485,7 +558,7 @@ def send_member_email(member_email, member_password):
 
 #---- Add Expense Screen ---
 def build_add_expense_screen():
-    global who_paid_spinner, description_input, amount_input, group
+    global who_paid_spinner, description_input, amount_input, group_members
     layout = BoxLayout(orientation='vertical', padding=40, spacing=20)
 
     layout.add_widget(Label(
@@ -502,15 +575,15 @@ def build_add_expense_screen():
     # who_paid_input = TextInput(size_hint=(0.6, None), height=50,
     #                            pos_hint={'center_x': 0.6, 'center_y': 0.75},
     #                            background_color=(1, 1, 1, 1), foreground_color=(0, 0, 0, 1))
-    group=load_member()  # Placeholder for group members
+    group_members=load_member()  # Placeholder for group members
     who_paid_spinner= Spinner(
         text='Group Members',
-        values=group,
+        values=group_members,
         size_hint=(0.5, None), size=(180, 50),
         pos_hint={'x': 0.3, 'center_y': 0.75},
         background_color="white",
         color=TEXT_COLOR,
-        font_size=16,
+        font_size=16
     )
     # Description
     description_label = Label(text='Description:', size_hint=(None, None), size=(120, 40),
@@ -558,17 +631,17 @@ def build_add_expense_screen():
     return layout
 
 def add_expense(instance):
-    print(group)
     exp_desc = description_input.text.strip()
     exp_name = who_paid_spinner.text
     exp_amount = amount_input.text.strip()
-    tr_id = random.randint(100000000,999999999)
+    tr_id = random.randint(1000,9999)
     if not exp_desc or not exp_name or not exp_amount:
         show_popup("ERROR","Please fill in all the fields")
         return
     amount = float(exp_amount)
-    split_amount = amount/len(group)
-    split_dict = dict.fromkeys(group, split_amount)
+    split_amount = amount/len(group_members)
+    split_dict = dict.fromkeys(group_members, split_amount)
+    print(split_dict)
     ref = db.reference("transaction")
     ref.push({
         'transactionid': tr_id,
@@ -581,23 +654,28 @@ def add_expense(instance):
     description_input.text = ""
     who_paid_spinner.text = "Group Members"
     amount_input.text = ""
+    
 
 def load_member():
-    global group
-    group=[]
+    global group_members
+    group_members=[]
     load_group = db.reference("users")
     member_data = load_group.get()
     if member_data:
         for usersid, usersinfo in member_data.items():
             name = usersinfo.get("name")
-            group.append(name)
-        return group
+            group_members.append(name)
+        return group_members
 
 signup_screen = Screen(name = 'signup')
 signup_screen.add_widget(build_signup_screen())
 login_screen = Screen(name = 'login')
 login_screen.add_widget(build_login_screen())
 dashboard_screen = Screen(name = 'dashboard')
+def update_dashboard(*args):
+    dashboard_screen.clear_widgets()
+    dashboard_screen.add_widget(build_dashboard_screen())
+dashboard_screen.bind(on_enter = update_dashboard)
 dashboard_screen.add_widget(build_dashboard_screen())
 add_member_screen = Screen(name = 'member')
 add_member_screen.add_widget(build_add_group_screen())
