@@ -1,90 +1,87 @@
-from kivymd.app import MDApp
-from kivymd.uix.label import MDLabel
-from kivy.uix.boxlayout import BoxLayout
-from kivymd.uix.button import MDRaisedButton
-import requests
-from kivymd.uix.pickers import MDDatePicker
-from kivymd.uix.card import MDCard
-from kivy.uix.image import AsyncImage
-from kivymd.uix.scrollview import ScrollView
-from kivy.core.window import Window
+import cv2
+import time
+import random
+import pygame
 
-#Async = wait for instruction to finish to move on to next line
+pygame.init()
 
-PRIMARY_COLOR = (1,0.5,0.2,1)
-api_key = "b1MZQ3kmHcgcXZ5VippDH6zFNAqbEK16sPb5jEed"
+video = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+face_cascade = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+)  #Using pre-trained model
 
-class APODApp(MDApp):
-    def build(self):
-        self.theme_cls.theme_style = "Dark"
-        self.theme_cls.primary_palette = "Orange"
+waiting_sound_played = False
+last_count = None
 
-        self.main_layout = BoxLayout(orientation = "vertical", padding = 40, spacing = 20)
-        main_layout_title = MDLabel(text = "NASA Picture Of The Day", halign = "center", font_style = "H5", markup = True,
-                                    theme_text_color = "Custom", text_color = PRIMARY_COLOR)
-        select_date_btn = MDRaisedButton(text = "Select Date", pos_hint = {'center_x' : 0.5},
-                                          on_press = self.open_date_picker)
-        self.main_layout.add_widget(main_layout_title)
-        self.main_layout.add_widget(select_date_btn)
+face_detected = False
+start_time = None
+countdown_dura = 3 #seconds
+waiting_sound = pygame.mixer.Sound("elevator_2jN6tnc.mp3")
+yayy_sound = pygame.mixer.Sound("yayying.mp3")
 
-        self.card_layout = MDCard(orientation = "vertical", size_hint_y = None, height = 400, padding = 20)
-        self.img_title = MDLabel(text = "")
-        self.date_img = MDLabel(text = "")
-        self.apod_img = AsyncImage(width = 500, height = 200, allow_stretch = True, size_hint = (None, None))
+while True:
+    ret, frame = video.read()
+    copy_frame = frame.copy()
+    if not ret:
+        print("Failed to grab frame")
+        break
 
-        self.card_layout.add_widget(self.img_title)
-        self.card_layout.add_widget(self.date_img)
-        self.card_layout.add_widget(self.apod_img)
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        self.main_layout.add_widget(self.card_layout)
+    faces = face_cascade.detectMultiScale(gray_frame, 1.2, 5)
+
+    # print(len(faces))
+
+    if len(faces) < 3:
+        # print("Face is detected")
+        cv2.putText(frame, f"Waiting...({len(faces)} detected)",  (10,30), cv2.FONT_HERSHEY_DUPLEX, 1, (0,0,255), 0)
+
+        count = len(faces)
+
+        if count == last_count:
+            if not waiting_sound_played:
+                waiting_sound.play()
+                waiting_sound_played = True
+
+        else:
+            waiting_sound.stop()
+            waiting_sound_played = False
         
-        self.scroll = ScrollView(size_hint = (1,None), height  = 200, bar_width = 10)
+        last_count = count
 
-        self.lower_layout = BoxLayout(orientation = "vertical", padding = 20, spacing = 20, size_hint_y = None)
-        self.lower_layout.bind(minimum_height = self.lower_layout.setter("height"))
+    if len(faces) >= 3:
+        cv2.putText(frame, "YAAAYYY!!! Capturing..", (10,30), cv2.FONT_HERSHEY_DUPLEX, 1, (0,0,255), 0)
+        
 
-        self.desc_heading = MDLabel(text = "Description", size_hint_y = None, height = 30)
-        self.desc_text = MDLabel(text = "", size_hint_y = None, text_size = (Window.width - 60, None))
+        if not face_detected:
+            face_detected = True
+            start_time = time.time()
+            yayy_sound.play()
+            print(start_time)  #1741824000 seconds = ~56 years,  January 1st 1970 to March 5th 2026
 
-        self.lower_layout.add_widget(self.desc_heading)
-        self.lower_layout.add_widget(self.desc_text)
-        self.scroll.add_widget(self.lower_layout)
+        else:
+            # print("No face is detected")
+            elapsed_time = time.time() - start_time
+            remaining_time = int(countdown_dura - elapsed_time)
+            if remaining_time > 0:
+                cv2.putText(frame, str(remaining_time), (10,30), cv2.FONT_HERSHEY_DUPLEX, 1, (0,0,255), 0)
 
-        self.main_layout.add_widget(self.scroll)
+            if elapsed_time > countdown_dura:
+                rand_num = random.randint(0,999)
+                save_file = f"SelfieCamImg{rand_num}.png"
+                cv2.imwrite(save_file, copy_frame)
+                print("Image saved")
+                break
+        
+    else:
+        face_detected = False
+        start_time = None
 
-        return self.main_layout
+    cv2.imshow("Selfie Cam", frame)
 
-    def open_date_picker(self, instance):
-        picker = MDDatePicker()
-        picker.bind(on_save = self.on_date_selected)
-        picker.open()
+    key = cv2.waitKey(1)
+    if key == ord("q"):
+        break
 
-    def on_date_selected(self, instance, date, _):
-        self.fetch_apod(str(date))
-
-    def fetch_apod(self, date):
-        try:
-            params = {
-                'api_key': api_key,
-                'date': date
-            }
-
-            url = "https://api.nasa.gov/planetary/apod"
-
-            response = requests.get(url, params = params)
-
-            if response.status_code == 200: 
-                data = response.json()
-
-                self.img_title.text = data.get("title", "")
-                self.image_url = data.get("url", "")
-                self.hd_image_url = data.get("hdurl", self.image_url)
-                self.date_img.text = data.get("date", "")
-
-                self.desc_text.text = data.get("explanation", "")
-                self.image.source = self.image_url
-        except:
-            print("Failed to connect to API")
-
-if __name__ == "__main__":
-    APODApp().run()
+video.release()
+cv2.destroyAllWindows()
